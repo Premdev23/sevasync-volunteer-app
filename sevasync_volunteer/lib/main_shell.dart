@@ -21,14 +21,7 @@ class _MainShellState extends State<MainShell> {
   int  _msgBadge  = 0;
   bool _polling   = true;
 
-  final List<Widget> _screens = const [
-    DashboardScreen(),
-    TasksScreen(),
-    NotificationsScreen(),
-    MessagesScreen(),
-    ProfileScreen(),
-    TaskHistoryScreen(),
-  ];
+  void _navigateTo(int index) => setState(() => _index = index);
 
   @override
   void initState() { super.initState(); _startPolling(); }
@@ -39,7 +32,7 @@ class _MainShellState extends State<MainShell> {
   Future<void> _startPolling() async {
     while (_polling && mounted) {
       try {
-        final stats = await VolunteerService.getDashboardStats();
+        final stats  = await VolunteerService.getDashboardStats();
         final convos = await VolunteerService.getConversations();
         final msgUnread = convos.fold(0, (s, c) => s + c.unreadCount);
         if (mounted) setState(() {
@@ -54,8 +47,19 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Pass navigation callback to Dashboard; rebuild screens each time
+    // so callback is always fresh (screens are lightweight, IndexedStack caches render)
+    final screens = [
+      DashboardScreen(onNavigate: _navigateTo),
+      const TasksScreen(),
+      const NotificationsScreen(),
+      const MessagesScreen(),
+      const ProfileScreen(),
+      const TaskHistoryScreen(),
+    ];
+
     return Scaffold(
-      body: IndexedStack(index: _index, children: _screens),
+      body: IndexedStack(index: _index, children: screens),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
             border: Border(top: BorderSide(color: AppColors.border))),
@@ -95,7 +99,6 @@ class _BadgeIcon extends StatelessWidget {
   final IconData icon;
   final int count;
   const _BadgeIcon({required this.icon, required this.count});
-
   @override
   Widget build(BuildContext context) {
     return Stack(clipBehavior: Clip.none, children: [

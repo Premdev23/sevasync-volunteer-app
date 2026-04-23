@@ -1,26 +1,44 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/volunteer_service.dart';
 
+// ── Open Google Maps ──────────────────────────────────────────────────────────
+Future<void> openInMaps(String location) async {
+  final encoded = Uri.encodeComponent(location);
+  final url = Uri.parse('https://www.google.com/maps/search/?api=1&query=$encoded');
+  if (await canLaunchUrl(url)) {
+    await launchUrl(url, mode: LaunchMode.externalApplication);
+  }
+}
+
 // ── Gradient Avatar ───────────────────────────────────────────────────────────
 class GradientAvatar extends StatelessWidget {
   final String initials;
+  final String? imageUrl;
   final double radius;
-  const GradientAvatar({super.key, required this.initials, this.radius = 24});
+  const GradientAvatar({super.key, required this.initials, this.imageUrl, this.radius = 24});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: radius * 2, height: radius * 2,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(colors: [AppColors.teal, AppColors.green],
-            begin: Alignment.topLeft, end: Alignment.bottomRight),
-        shape: BoxShape.circle),
-      child: Center(child: Text(initials,
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800,
-              fontSize: radius * 0.75))));
+    if (imageUrl != null && imageUrl!.isNotEmpty) {
+      return ClipOval(child: Image.network(imageUrl!,
+          width: radius * 2, height: radius * 2, fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _gradient()));
+    }
+    return _gradient();
   }
+
+  Widget _gradient() => Container(
+    width: radius * 2, height: radius * 2,
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(colors: [AppColors.teal, AppColors.green],
+          begin: Alignment.topLeft, end: Alignment.bottomRight),
+      shape: BoxShape.circle),
+    child: Center(child: Text(initials,
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800,
+            fontSize: radius * 0.75))));
 }
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
@@ -40,7 +58,8 @@ class StatCard extends StatelessWidget {
         color: bgColor ?? AppColors.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.border),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0,2))]),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04),
+            blurRadius: 8, offset: const Offset(0,2))]),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Text(label, style: const TextStyle(color: AppColors.textSecondary,
@@ -56,7 +75,7 @@ class StatCard extends StatelessWidget {
   }
 }
 
-// ── Task Card — uses Stack + left bar to avoid non-uniform border + borderRadius crash ──
+// ── Task Card ─────────────────────────────────────────────────────────────────
 class TaskCard extends StatelessWidget {
   final VolunteerTask task;
   final VoidCallback? onStatusUpdate;
@@ -65,20 +84,17 @@ class TaskCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pc = AppColors.priorityColor(task.priority);
-
     return Stack(children: [
-      // Main card with uniform border
       Container(
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppColors.border),
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04),
-              blurRadius: 6, offset: const Offset(0, 2))]),
+              blurRadius: 6, offset: const Offset(0,2))]),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(18, 14, 14, 14),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            // Badges
             Wrap(spacing: 6, runSpacing: 4, children: [
               if (task.type != null) _pill(task.type!, AppColors.teal, AppColors.tealLight),
               _pill(task.priority, pc, AppColors.priorityBg(task.priority)),
@@ -89,7 +105,6 @@ class TaskCard extends StatelessWidget {
             Text(task.title, style: const TextStyle(fontWeight: FontWeight.w700,
                 fontSize: 14, color: AppColors.textPrimary)),
             const SizedBox(height: 8),
-            // Location + date
             Row(children: [
               if (task.location != null) ...[
                 const Icon(Icons.location_on, size: 12, color: AppColors.teal),
@@ -105,7 +120,6 @@ class TaskCard extends StatelessWidget {
                   style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
             ]),
             const SizedBox(height: 10),
-            // Action buttons
             Wrap(spacing: 8, runSpacing: 6, children: [
               if (task.isCompleted)
                 _actionBtn('✓ Completed', AppColors.green, AppColors.greenLight, null)
@@ -121,23 +135,22 @@ class TaskCard extends StatelessWidget {
                     onStatusUpdate?.call();
                   }),
               ],
-              _actionBtn('🗺 Directions', AppColors.teal, AppColors.tealLight, () {}),
+              // Directions — opens Google Maps
+              if (task.location != null)
+                _actionBtn('🗺 Directions', AppColors.teal, AppColors.tealLight,
+                    () => openInMaps(task.location!))
+              else
+                _actionBtn('🗺 Directions', AppColors.textSecondary,
+                    AppColors.surface2, null),
             ]),
           ]),
         ),
       ),
-      // Left colored bar — drawn as overlay to avoid non-uniform border issue
       Positioned(left: 0, top: 0, bottom: 0,
-        child: Container(
-          width: 4,
-          decoration: BoxDecoration(
-            color: pc,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(12),
-              bottomLeft: Radius.circular(12)),
-          ),
-        ),
-      ),
+        child: Container(width: 4, decoration: BoxDecoration(
+          color: pc,
+          borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(12), bottomLeft: Radius.circular(12))))),
     ]);
   }
 
@@ -153,8 +166,7 @@ class TaskCard extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8),
               border: Border.all(color: color.withOpacity(0.3))),
-          child: Text(label, style: TextStyle(color: color, fontSize: 11,
-              fontWeight: FontWeight.w600))));
+          child: Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600))));
 
   Color _statusColor(String s) {
     switch (s) {
@@ -231,7 +243,7 @@ class NotifTile extends StatelessWidget {
   }
 }
 
-// ── Shared widgets ────────────────────────────────────────────────────────────
+// ── Shared ────────────────────────────────────────────────────────────────────
 class EmptyState extends StatelessWidget {
   final IconData icon;
   final String message;

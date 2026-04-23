@@ -1,4 +1,3 @@
-// ── VolunteerTask ─────────────────────────────────────────────────────────────
 class VolunteerTask {
   final String id, title, status, priority;
   final String? instructions, location, type, needId;
@@ -36,7 +35,6 @@ class VolunteerTask {
   bool get isActive    => status == 'in_progress';
 }
 
-// ── NotificationItem ──────────────────────────────────────────────────────────
 class NotificationItem {
   final String id, title, type;
   final String? body;
@@ -56,19 +54,18 @@ class NotificationItem {
   );
 
   String get content => body != null && body!.isNotEmpty ? '$title\n$body' : title;
-  NotificationItem markRead() => NotificationItem(id: id, title: title,
-      type: type, body: body, isRead: true, createdAt: createdAt);
+  NotificationItem markRead() => NotificationItem(
+      id: id, title: title, type: type, body: body, isRead: true, createdAt: createdAt);
 }
 
-// ── VolunteerProfile ──────────────────────────────────────────────────────────
 class VolunteerProfile {
   final String id, name, role, status;
-  final String? email, region, phone;
+  final String? email, region, phone, avatarUrl;
   final List<String> skills, availableDays;
   final DateTime? joinedAt;
 
   const VolunteerProfile({required this.id, required this.name, required this.role,
-      required this.status, this.email, this.region, this.phone,
+      required this.status, this.email, this.region, this.phone, this.avatarUrl,
       required this.skills, required this.availableDays, this.joinedAt});
 
   factory VolunteerProfile.fromJson(Map<String, dynamic> j) {
@@ -86,6 +83,7 @@ class VolunteerProfile {
       role:          (j['role'] as String?) ?? 'volunteer',
       region:        j['region'] as String?,
       phone:         j['phone'] as String?,
+      avatarUrl:     j['avatar_url'] as String?,
       skills:        arr(j['skills']),
       status:        (j['status'] as String?) ?? 'active',
       availableDays: arr(j['available_days']),
@@ -99,14 +97,13 @@ class VolunteerProfile {
     return p.length >= 2 ? '${p.first[0]}${p.last[0]}'.toUpperCase()
         : name.isNotEmpty ? name[0].toUpperCase() : 'V';
   }
-  VolunteerProfile copyWith({String? status}) => VolunteerProfile(
+  VolunteerProfile copyWith({String? status, String? avatarUrl}) => VolunteerProfile(
     id: id, name: name, email: email, role: role, region: region,
     phone: phone, skills: skills, availableDays: availableDays, joinedAt: joinedAt,
-    status: status ?? this.status,
+    status: status ?? this.status, avatarUrl: avatarUrl ?? this.avatarUrl,
   );
 }
 
-// ── ChatMessage ───────────────────────────────────────────────────────────────
 class ChatMessage {
   final String id, fromId, toId, text;
   final bool read;
