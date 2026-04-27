@@ -15,13 +15,18 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  int  _index     = 0;
-  int  _taskBadge = 0;
+  int  _index      = 0;
+  int  _taskBadge  = 0;
   int  _notifBadge = 0;
-  int  _msgBadge  = 0;
-  bool _polling   = true;
+  int  _msgBadge   = 0;
+  bool _polling    = true;
 
   void _navigateTo(int index) => setState(() => _index = index);
+
+  /// Called by MessagesScreen the moment a conversation is opened/read
+  void _onMessagesRead(int remaining) {
+    if (mounted) setState(() => _msgBadge = remaining);
+  }
 
   @override
   void initState() { super.initState(); _startPolling(); }
@@ -47,13 +52,12 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    // Pass navigation callback to Dashboard; rebuild screens each time
-    // so callback is always fresh (screens are lightweight, IndexedStack caches render)
     final screens = [
       DashboardScreen(onNavigate: _navigateTo),
       const TasksScreen(),
       const NotificationsScreen(),
-      const MessagesScreen(),
+      // Pass callback so MessagesScreen can instantly update badge
+      MessagesScreen(onUnreadChanged: _onMessagesRead),
       const ProfileScreen(),
       const TaskHistoryScreen(),
     ];
@@ -65,20 +69,7 @@ class _MainShellState extends State<MainShell> {
             border: Border(top: BorderSide(color: AppColors.border))),
         child: BottomNavigationBar(
           currentIndex: _index,
-          onTap: (i) async {
-            setState(() => _index = i);
-            // Refresh message badge immediately when tapping Messages tab
-            if (i == 3) {
-              await Future.delayed(const Duration(milliseconds: 800));
-              if (mounted) {
-                try {
-                  final convos = await VolunteerService.getConversations();
-                  final unread = convos.fold(0, (s, c) => s + c.unreadCount);
-                  if (mounted) setState(() => _msgBadge = unread);
-                } catch (_) {}
-              }
-            }
-          },
+          onTap: (i) => setState(() => _index = i),
           items: [
             const BottomNavigationBarItem(
               icon: Icon(Icons.dashboard_outlined), activeIcon: Icon(Icons.dashboard),

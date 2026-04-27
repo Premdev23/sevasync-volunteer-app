@@ -67,17 +67,18 @@ class VolunteerService {
       }).eq('id', taskId);
 
   // ── Proof of Work ─────────────────────────────────────────────────────────
-  /// Upload proof photo to 'proofs' bucket, returns public URL
+  /// Upload proof photo to 'avatars' bucket (only bucket in schema) under proofs/ prefix
   static Future<String?> uploadProofPhoto(Uint8List bytes, String taskId) async {
     try {
-      final fileName = 'proof_${taskId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      await _db.storage.from('proofs').uploadBinary(
+      // Use the existing 'avatars' bucket with a proofs/ subfolder
+      final fileName = 'proofs/${taskId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      await _db.storage.from('avatars').uploadBinary(
         fileName, bytes,
         fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
       );
-      return _db.storage.from('proofs').getPublicUrl(fileName);
-    } catch (_) {
-      return null; // proofs bucket may not exist yet — graceful fallback
+      return _db.storage.from('avatars').getPublicUrl(fileName);
+    } catch (e) {
+      return null;
     }
   }
 
@@ -112,8 +113,8 @@ class VolunteerService {
     if (photoBytes != null && photoBytes.isNotEmpty) {
       final url = await uploadProofPhoto(photoBytes, taskId);
       photoNote = url != null
-          ? '\nPhoto proof: $url'
-          : '\n[Photo attached — upload failed, no storage bucket]';
+          ? '\n[IMG:$url]'
+          : '\n[Photo upload failed]';
     }
 
     // 4. Send [PROOF_OF_WORK] message — text only (no image column in messages table)

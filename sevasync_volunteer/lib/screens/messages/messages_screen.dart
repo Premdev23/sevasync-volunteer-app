@@ -5,7 +5,9 @@ import '../../../models/models.dart';
 import '../../../services/volunteer_service.dart';
 
 class MessagesScreen extends StatefulWidget {
-  const MessagesScreen({super.key});
+  /// Called whenever unread count changes so MainShell badge updates instantly
+  final void Function(int remaining)? onUnreadChanged;
+  const MessagesScreen({super.key, this.onUnreadChanged});
   @override
   State<MessagesScreen> createState() => _MessagesScreenState();
 }
@@ -63,20 +65,22 @@ class _MessagesScreenState extends State<MessagesScreen> {
   /// Update local state immediately so bottom nav badge drops to 0 without
   /// waiting for the next 15-second polling cycle
   void _clearUnreadLocally(String adminId) {
-    setState(() {
-      _convos = _convos.map((c) {
-        if (c.admin.id != adminId) return c;
-        // Mark all messages from admin as read in local list
-        final readMsgs = c.messages.map((m) =>
-          m.fromId == adminId
-              ? ChatMessage(id: m.id, fromId: m.fromId, toId: m.toId,
-                  text: m.text, read: true, createdAt: m.createdAt)
-              : m
-        ).toList();
-        return AdminConversation(
-            admin: c.admin, messages: readMsgs, unreadCount: 0);
-      }).toList();
-    });
+    final updated = _convos.map((c) {
+      if (c.admin.id != adminId) return c;
+      final readMsgs = c.messages.map((m) =>
+        m.fromId == adminId
+            ? ChatMessage(id: m.id, fromId: m.fromId, toId: m.toId,
+                text: m.text, read: true, createdAt: m.createdAt)
+            : m
+      ).toList();
+      return AdminConversation(admin: c.admin, messages: readMsgs, unreadCount: 0);
+    }).toList();
+
+    setState(() => _convos = updated);
+
+    // Notify MainShell with remaining total unread so badge updates instantly
+    final remaining = updated.fold(0, (s, c) => s + c.unreadCount);
+    widget.onUnreadChanged?.call(remaining);
   }
 
   Future<void> _sendMessage() async {
@@ -334,6 +338,103 @@ class _MessagesScreenState extends State<MessagesScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildBubble(BuildContext ctx, ChatMessage msg, bool isMine) {
+    final maxW = MediaQuery.of(ctx).size.width * 0.62;
+    final bubbleColor = isMine ? AppColors.teal : AppColors.surface;
+    final textColor   = isMine ? Colors.white : AppColors.textPrimary;
+    final border      = isMine ? null : Border.all(color: AppColors.border);
+    final radius = BorderRadius.only(
+      topLeft: const Radius.circular(16), topRight: const Radius.circular(16),
+      bottomLeft: Radius.circular(isMine ? 16 : 4),
+      bottomRight: Radius.circular(isMine ? 4 : 16));
+
+    // Detect [PROOF_OF_WORK] message with [IMG:url] — show special card
+    if (msg.text.startsWith('[PROOF_OF_WORK]')) {
+      final imgMatch = RegExp(r'\[IMG:(https?://[^\]]+)\]').firstMatch(msg.text);
+      final imgUrl   = imgMatch?.group(1);
+      final noteText = msg.text
+          .replaceFirst('[PROOF_OF_WORK]', '')
+          .replaceAll(RegExp(r'\[IMG:[^\]]+\]'), '')
+          .trim();
+
+      return Container(
+        constraints: BoxConstraints(maxWidth: maxW),
+        decoration: BoxDecoration(color: bubbleColor, borderRadius: radius, border: border,
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4)]),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Header tag
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: isMine ? Colors.white.withOpacity(0.15) : AppColors.orangeLight,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Text('📋 ', style: TextStyle(fontSize: 11)),
+              Text('PROOF OF WORK',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800,
+                      color: isMine ? Colors.white : AppColors.orange)),
+            ])),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(noteText, style: TextStyle(fontSize: 13, color: textColor, height: 1.4)),
+              // Show image if present
+              if (imgUrl != null) ...[
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(imgUrl,
+                    width: maxW - 24, fit: BoxFit.cover,
+                    loadingBuilder: (_, child, progress) => progress == null ? child
+                        : Container(height: 100, color: Colors.black12,
+                            child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
+                    errorBuilder: (_, __, ___) => Container(
+                      height: 60, color: Colors.black12,
+                      child: Center(child: Text('Image unavailable',
+                          style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.6))))),
+                  )),
+              ],
+            ])),
+        ]));
+    }
+
+    // Detect [VERIFICATION_APPROVED] / [VERIFICATION_REJECTED]
+    if (msg.text.contains('[VERIFICATION_APPROVED]') || msg.text.contains('VERIFIED')) {
+      return Container(
+        constraints: BoxConstraints(maxWidth: maxW),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: AppColors.greenLight, borderRadius: radius,
+            border: Border.all(color: AppColors.green.withOpacity(0.3))),
+        child: Row(children: [
+          const Text('✅ ', style: TextStyle(fontSize: 14)),
+          Expanded(child: Text(msg.text.replaceAll('[VERIFICATION_APPROVED]', '').trim(),
+              style: const TextStyle(fontSize: 13, color: AppColors.green, fontWeight: FontWeight.w600))),
+        ]));
+    }
+
+    if (msg.text.contains('[VERIFICATION_REJECTED]') || msg.text.contains('REJECTED')) {
+      return Container(
+        constraints: BoxConstraints(maxWidth: maxW),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: AppColors.redLight, borderRadius: radius,
+            border: Border.all(color: AppColors.red.withOpacity(0.3))),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('❌ ', style: TextStyle(fontSize: 14)),
+          Expanded(child: Text(msg.text.replaceAll('[VERIFICATION_REJECTED]', '').trim(),
+              style: const TextStyle(fontSize: 13, color: AppColors.red, fontWeight: FontWeight.w600))),
+        ]));
+    }
+
+    // Default bubble
+    return Container(
+      constraints: BoxConstraints(maxWidth: maxW),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(color: bubbleColor, borderRadius: radius, border: border,
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04),
+              blurRadius: 4, offset: const Offset(0, 1))]),
+      child: Text(msg.text, style: TextStyle(fontSize: 13, color: textColor, height: 1.4)));
   }
 
   Widget _avatar(VolunteerProfile p, {double size = 36}) {
