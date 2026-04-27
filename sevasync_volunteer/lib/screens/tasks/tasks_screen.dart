@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../theme/app_theme.dart';
 import '../../../widgets/widgets.dart';
+import '../../../widgets/proof_dialog.dart';
 import '../../../models/models.dart';
 import '../../../services/volunteer_service.dart';
 
@@ -99,8 +100,12 @@ class _TasksScreenState extends State<TasksScreen> {
                         Expanded(child: _detailPanel()),
                       ]);
                     }
-                    // Narrow: just list, tap opens bottom sheet
-                    return _taskList();
+                    // Narrow: list + tap opens bottom sheet
+                    return _NarrowTaskList(
+                      tasks: _filtered,
+                      onRefresh: _load,
+                      onTapTask: (task) => _showTaskBottomSheet(task),
+                    );
                   })),
                 ]),
     );
@@ -167,6 +172,12 @@ class _TasksScreenState extends State<TasksScreen> {
         ])));
     }
     final t = _selected!;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: _detailContent(t));
+  }
+
+  Widget _detailContent(VolunteerTask t) {
     final pc = AppColors.priorityColor(t.priority);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -193,21 +204,42 @@ class _TasksScreenState extends State<TasksScreen> {
         ],
         const SizedBox(height: 24),
         if (t.status != 'completed') ...[
-          const Text('Update Status', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-          const SizedBox(height: 10),
-          Row(children: [
-            if (t.status != 'active')
-              Expanded(child: OutlinedButton(
+          // Start Task (if not in progress yet)
+          if (t.status != 'in_progress') ...[
+            SizedBox(width: double.infinity,
+              child: OutlinedButton.icon(
                 onPressed: () => _updateStatus(t, 'in_progress'),
-                style: OutlinedButton.styleFrom(foregroundColor: AppColors.orange,
-                    side: const BorderSide(color: AppColors.orange)),
-                child: const Text('Mark In Progress'))),
-            if (t.status != 'active') const SizedBox(width: 10),
-            Expanded(child: ElevatedButton(
-              onPressed: () => _updateStatus(t, 'completed'),
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.green, foregroundColor: Colors.white),
-              child: const Text('Mark Completed'))),
-          ]),
+                icon: const Icon(Icons.play_arrow, size: 16),
+                label: const Text('Start Task'),
+                style: OutlinedButton.styleFrom(foregroundColor: AppColors.teal,
+                    side: const BorderSide(color: AppColors.teal),
+                    padding: const EdgeInsets.symmetric(vertical: 12)))),
+            const SizedBox(height: 10),
+          ],
+          // Mark Complete & Submit Proof — orange like website
+          SizedBox(width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                final submitted = await showProofDialog(context, t);
+                if (submitted) { await _load(); setState(() => _selected = null); }
+              },
+              icon: const Icon(Icons.check, size: 16),
+              label: const Text('Mark Complete & Submit Proof'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.orange, foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)))),
+          const SizedBox(height: 10),
+          // Get Directions
+          if (t.location != null)
+            SizedBox(width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => openInMaps(t.location!),
+                icon: const Text('🗺', style: TextStyle(fontSize: 14)),
+                label: const Text('Get Directions'),
+                style: OutlinedButton.styleFrom(foregroundColor: AppColors.teal,
+                    side: const BorderSide(color: AppColors.teal),
+                    padding: const EdgeInsets.symmetric(vertical: 12)))),
         ] else
           Container(width: double.infinity, padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(color: AppColors.greenLight, borderRadius: BorderRadius.circular(10),
@@ -224,6 +256,46 @@ class _TasksScreenState extends State<TasksScreen> {
   Future<void> _updateStatus(VolunteerTask t, String status) async {
     await VolunteerService.updateTaskStatus(t.id, status);
     await _load();
+  }
+
+  void _showTaskBottomSheet(VolunteerTask task) {
+    setState(() => _selected = task);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        builder: (_, scrollCtrl) => Container(
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          child: Column(children: [
+            // Drag handle
+            Container(margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2))),
+            // Header
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Row(children: [
+                const Text('Task Details', style: TextStyle(fontSize: 16,
+                    fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                const Spacer(),
+                IconButton(icon: const Icon(Icons.close, size: 20, color: AppColors.textSecondary),
+                    onPressed: () => Navigator.pop(context)),
+              ])),
+            const Divider(height: 0),
+            // Content
+            Expanded(child: SingleChildScrollView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.all(20),
+              child: _detailContent(task))),
+          ])),
+      ),
+    ).whenComplete(() => setState(() => _selected = null));
   }
 
   Widget _badge(String label, Color color) => Container(
@@ -250,5 +322,38 @@ class _TasksScreenState extends State<TasksScreen> {
   String _fmt(DateTime dt) {
     const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return '${m[dt.month-1]} ${dt.day}, ${dt.year}';
+  }
+}
+
+// ── Narrow task list — tapping a task opens bottom sheet ─────────────────────
+class _NarrowTaskList extends StatelessWidget {
+  final List<VolunteerTask> tasks;
+  final VoidCallback onRefresh;
+  final void Function(VolunteerTask) onTapTask;
+
+  const _NarrowTaskList({
+    required this.tasks,
+    required this.onRefresh,
+    required this.onTapTask,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (tasks.isEmpty) {
+      return const Center(child: EmptyState(icon: Icons.task_outlined, message: 'No tasks here yet.'));
+    }
+    return RefreshIndicator(
+      onRefresh: () async => onRefresh(),
+      color: AppColors.teal,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: tasks.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (_, i) => GestureDetector(
+          onTap: () => onTapTask(tasks[i]),
+          child: TaskCard(task: tasks[i], onStatusUpdate: onRefresh),
+        ),
+      ),
+    );
   }
 }

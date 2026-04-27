@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'proof_dialog.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/volunteer_service.dart';
@@ -7,10 +8,24 @@ import '../services/volunteer_service.dart';
 // ── Open Google Maps ──────────────────────────────────────────────────────────
 Future<void> openInMaps(String location) async {
   final encoded = Uri.encodeComponent(location);
-  final url = Uri.parse('https://www.google.com/maps/search/?api=1&query=$encoded');
-  if (await canLaunchUrl(url)) {
-    await launchUrl(url, mode: LaunchMode.externalApplication);
+
+  // Try geo: scheme first (opens Google Maps app on Android directly)
+  final geoUrl = Uri.parse('geo:0,0?q=$encoded');
+  if (await canLaunchUrl(geoUrl)) {
+    await launchUrl(geoUrl);
+    return;
   }
+
+  // Fallback: Google Maps via external app
+  final mapsUrl = Uri.parse('https://maps.google.com/maps?q=$encoded');
+  if (await canLaunchUrl(mapsUrl)) {
+    await launchUrl(mapsUrl, mode: LaunchMode.externalApplication);
+    return;
+  }
+
+  // Last resort: browser
+  final browserUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$encoded');
+  await launchUrl(browserUrl, mode: LaunchMode.externalApplication);
 }
 
 // ── Gradient Avatar ───────────────────────────────────────────────────────────
@@ -130,10 +145,12 @@ class TaskCard extends StatelessWidget {
                     onStatusUpdate?.call();
                   }),
                 if (task.status == 'in_progress')
-                  _actionBtn('✓ Mark Done', AppColors.green, AppColors.greenLight, () async {
-                    await VolunteerService.updateTaskStatus(task.id, 'completed');
-                    onStatusUpdate?.call();
-                  }),
+                  Builder(builder: (ctx) => _actionBtn(
+                    '✓ Mark Complete & Submit Proof',
+                    AppColors.orange, AppColors.orangeLight, () async {
+                      final submitted = await showProofDialog(ctx, task);
+                      if (submitted) onStatusUpdate?.call();
+                    })),
               ],
               // Directions — opens Google Maps
               if (task.location != null)

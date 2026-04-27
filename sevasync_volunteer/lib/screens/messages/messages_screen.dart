@@ -53,8 +53,30 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   Future<void> _selectAdmin(AdminConversation convo) async {
     setState(() => _selected = convo);
+    // Immediately zero-out unread count locally so badge updates instantly
+    _clearUnreadLocally(convo.admin.id);
+    // Then persist to DB
     await VolunteerService.markMessagesRead(convo.admin.id);
     _scrollToBottom();
+  }
+
+  /// Update local state immediately so bottom nav badge drops to 0 without
+  /// waiting for the next 15-second polling cycle
+  void _clearUnreadLocally(String adminId) {
+    setState(() {
+      _convos = _convos.map((c) {
+        if (c.admin.id != adminId) return c;
+        // Mark all messages from admin as read in local list
+        final readMsgs = c.messages.map((m) =>
+          m.fromId == adminId
+              ? ChatMessage(id: m.id, fromId: m.fromId, toId: m.toId,
+                  text: m.text, read: true, createdAt: m.createdAt)
+              : m
+        ).toList();
+        return AdminConversation(
+            admin: c.admin, messages: readMsgs, unreadCount: 0);
+      }).toList();
+    });
   }
 
   Future<void> _sendMessage() async {

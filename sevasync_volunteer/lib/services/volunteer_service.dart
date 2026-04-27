@@ -11,14 +11,10 @@ class VolunteerService {
   static Future<void> signOut() => _db.auth.signOut();
 
   // ── Profile ───────────────────────────────────────────────────────────────
+  // avatar_url is a TEXT column in profiles — read it directly
   static Future<VolunteerProfile> getProfile() async {
     final row = await _db.from('profiles').select().eq('id', _uid).single();
-    // Also try to get avatar from storage
-    String? avatarUrl;
-    try {
-      avatarUrl = _db.storage.from('avatars').getPublicUrl('$_uid/avatar.jpg');
-    } catch (_) {}
-    return VolunteerProfile.fromJson({...row, if (avatarUrl != null) 'avatar_url': avatarUrl});
+    return VolunteerProfile.fromJson(row);
   }
 
   static Future<void> setStatus(String status) =>
@@ -39,16 +35,19 @@ class VolunteerService {
     }
   }
 
-  static Future<String?> uploadAvatar(List<int> rawBytes) async {
-    final bytes = Uint8List.fromList(rawBytes);
+  /// Upload avatar to 'avatars' bucket → save public URL into profiles.avatar_url column
+  static Future<String?> uploadAvatar(Uint8List bytes) async {
     try {
+      final path = '$_uid/avatar.jpg';
       await _db.storage.from('avatars').uploadBinary(
-        '$_uid/avatar.jpg',
-        bytes,
+        path, bytes,
         fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
       );
-      return _db.storage.from('avatars').getPublicUrl('$_uid/avatar.jpg');
-    } catch (_) {
+      final url = _db.storage.from('avatars').getPublicUrl(path);
+      // Save URL directly into the avatar_url TEXT column
+      await _db.from('profiles').update({'avatar_url': url}).eq('id', _uid);
+      return url;
+    } catch (e) {
       return null;
     }
   }
@@ -66,6 +65,66 @@ class VolunteerService {
         'status': status,
         if (status == 'completed') 'completed_at': DateTime.now().toIso8601String(),
       }).eq('id', taskId);
+
+  // ── Proof of Work ─────────────────────────────────────────────────────────
+  /// Upload proof photo to 'proofs' bucket, returns public URL
+  static Future<String?> uploadProofPhoto(Uint8List bytes, String taskId) async {
+    try {
+      final fileName = 'proof_${taskId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      await _db.storage.from('proofs').uploadBinary(
+        fileName, bytes,
+        fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
+      );
+      return _db.storage.from('proofs').getPublicUrl(fileName);
+    } catch (_) {
+      return null; // proofs bucket may not exist yet — graceful fallback
+    }
+  }
+
+  /// Submit proof: mark task complete + send [PROOF_OF_WORK] message to admin
+  static Future<void> submitProof({
+    required String taskId,
+    required String taskTitle,
+    required String notes,
+    Uint8List? photoBytes,
+  }) async {
+    // 1. Mark task completed
+    await _db.from('tasks').update({
+      'status': 'completed',
+      'completed_at': DateTime.now().toIso8601String(),
+    }).eq('id', taskId);
+
+    // 2. Find admin_id from the task itself first, then fallback
+    String? adminId;
+    try {
+      final task = await _db.from('tasks').select('admin_id').eq('id', taskId).single();
+      adminId = task['admin_id'] as String?;
+    } catch (_) {}
+
+    if (adminId == null) {
+      final admins = await getAdmins();
+      if (admins.isNotEmpty) adminId = admins.first.id;
+    }
+    if (adminId == null) return;
+
+    // 3. Upload photo if provided → get URL
+    String photoNote = '';
+    if (photoBytes != null && photoBytes.isNotEmpty) {
+      final url = await uploadProofPhoto(photoBytes, taskId);
+      photoNote = url != null
+          ? '\nPhoto proof: $url'
+          : '\n[Photo attached — upload failed, no storage bucket]';
+    }
+
+    // 4. Send [PROOF_OF_WORK] message — text only (no image column in messages table)
+    final message = '[PROOF_OF_WORK] Task: "$taskTitle" — $notes$photoNote';
+    await _db.from('messages').insert({
+      'from_id': _uid,
+      'to_id':   adminId,
+      'text':    message,
+      'read':    false,
+    });
+  }
 
   // ── Notifications ─────────────────────────────────────────────────────────
   static Future<List<NotificationItem>> getNotifications() async {
@@ -108,11 +167,21 @@ class VolunteerService {
   }
 
   static Future<void> sendMessage(String toId, String text) =>
-      _db.from('messages').insert({'from_id': _uid, 'to_id': toId, 'text': text, 'read': false});
+      _db.from('messages').insert({
+        'from_id': _uid,
+        'to_id':   toId,
+        'text':    text,
+        'read':    false,
+      });
 
+  /// Mark all messages FROM admin TO volunteer as read
+  /// messages.read column = BOOLEAN
   static Future<void> markMessagesRead(String fromId) =>
-      _db.from('messages').update({'read': true})
-          .eq('from_id', fromId).eq('to_id', _uid).eq('read', false);
+      _db.from('messages')
+          .update({'read': true})
+          .eq('from_id', fromId)
+          .eq('to_id', _uid)
+          .eq('read', false);
 
   static Future<List<AdminConversation>> getConversations() async {
     final admins = await getAdmins();
@@ -120,7 +189,8 @@ class VolunteerService {
     for (final admin in admins) {
       try {
         final msgs = await getMessages(admin.id);
-        final unread = msgs.where((m) => m.fromId != _uid && !m.read).length;
+        // Unread = messages FROM admin that volunteer hasn't read
+        final unread = msgs.where((m) => m.fromId == admin.id && !m.read).length;
         result.add(AdminConversation(admin: admin, messages: msgs, unreadCount: unread));
       } catch (_) {
         result.add(AdminConversation(admin: admin, messages: [], unreadCount: 0));
@@ -143,6 +213,7 @@ class VolunteerService {
   }
 }
 
+// ── Value objects ─────────────────────────────────────────────────────────────
 class DashboardStats {
   final int total, active, completed, unreadNotifications;
   const DashboardStats({required this.total, required this.active,

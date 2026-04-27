@@ -65,7 +65,20 @@ class _MainShellState extends State<MainShell> {
             border: Border(top: BorderSide(color: AppColors.border))),
         child: BottomNavigationBar(
           currentIndex: _index,
-          onTap: (i) => setState(() => _index = i),
+          onTap: (i) async {
+            setState(() => _index = i);
+            // Refresh message badge immediately when tapping Messages tab
+            if (i == 3) {
+              await Future.delayed(const Duration(milliseconds: 800));
+              if (mounted) {
+                try {
+                  final convos = await VolunteerService.getConversations();
+                  final unread = convos.fold(0, (s, c) => s + c.unreadCount);
+                  if (mounted) setState(() => _msgBadge = unread);
+                } catch (_) {}
+              }
+            }
+          },
           items: [
             const BottomNavigationBarItem(
               icon: Icon(Icons.dashboard_outlined), activeIcon: Icon(Icons.dashboard),
