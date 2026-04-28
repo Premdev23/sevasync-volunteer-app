@@ -310,27 +310,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
             _avatar(_selected!.admin, size: 28),
             const SizedBox(width: 8),
           ],
-          Column(crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          Column(
+            crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              Container(
-                constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.55),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: isMine ? AppColors.teal : AppColors.surface,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(16),
-                    topRight: const Radius.circular(16),
-                    bottomLeft: Radius.circular(isMine ? 16 : 4),
-                    bottomRight: Radius.circular(isMine ? 4 : 16),
-                  ),
-                  border: isMine ? null : Border.all(color: AppColors.border),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04),
-                      blurRadius: 4, offset: const Offset(0, 1))],
-                ),
-                child: Text(msg.text,
-                    style: TextStyle(fontSize: 13, color: isMine ? Colors.white : AppColors.textPrimary,
-                        height: 1.4)),
-              ),
+              // ← Now calls _buildBubble which renders images, proof cards etc.
+              _buildBubble(context, msg, isMine),
               const SizedBox(height: 3),
               Text(_timeLabel(msg.createdAt),
                   style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
